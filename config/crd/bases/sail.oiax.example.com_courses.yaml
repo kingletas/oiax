@@ -14,10 +14,25 @@ spec:
     singular: course
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Available")].status
+      name: Available
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Course is the Schema for the courses API
+        description: |-
+          Course asks for a small web service that shows a message. The operator
+          turns it into a ConfigMap, a Deployment and a Service, and keeps them so.
         properties:
           apiVersion:
             description: |-
@@ -37,27 +52,39 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Course
+            description: |-
+              CourseSpec is the small web service a Course asks for: a page that shows
+              a message, served by a number of replicas.
             properties:
-              foo:
-                description: foo is an example field of Course. Edit course_types.go
-                  to remove/update
+              image:
+                default: nginxinc/nginx-unprivileged:1.30-alpine
+                description: |-
+                  image is the web server that serves the page. It must listen on 8080
+                  and serve files from /usr/share/nginx/html.
                 type: string
+              message:
+                description: message is the text the page shows.
+                maxLength: 1024
+                minLength: 1
+                type: string
+              replicas:
+                default: 1
+                description: replicas is how many pods serve the page.
+                format: int32
+                maximum: 10
+                minimum: 0
+                type: integer
+            required:
+            - message
             type: object
           status:
-            description: status defines the observed state of Course
+            description: CourseStatus is what the operator last saw of the service
+              it runs.
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the Course resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions say whether the page is being served. "Available" is True
+                  once every replica asked for is ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +143,15 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the spec generation this status
+                  describes.
+                format: int64
+                type: integer
+              readyReplicas:
+                description: readyReplicas is how many pods are serving the page.
+                format: int32
+                type: integer
             type: object
         required:
         - spec
