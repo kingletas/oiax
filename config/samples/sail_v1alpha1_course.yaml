@@ -1,0 +1,9 @@
+apiVersion: sail.oiax.example.com/v1alpha1
+kind: Course
+metadata:
+  labels:
+    app.kubernetes.io/name: oiax
+    app.kubernetes.io/managed-by: kustomize
+  name: course-sample
+spec:
+  # TODO(user): Add fields here
