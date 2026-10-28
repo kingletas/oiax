@@ -130,6 +130,25 @@ var _ = Describe("Course Controller", func() {
 		Expect(after.Spec.Template.Annotations[pageHash]).NotTo(Equal(hashBefore))
 	})
 
+	It("keeps a pod template annotation it did not write, such as a rollout restart's", func() {
+		key = types.NamespacedName{Name: "slipway", Namespace: namespace}
+		Expect(k8sClient.Create(ctx, newCourse(key.Name, "Tied up", 1))).To(Succeed())
+		reconcileOnce()
+
+		const restartedAt = "kubectl.kubernetes.io/restartedAt"
+		deployment := &appsv1.Deployment{}
+		fetch(deployment)
+		deployment.Spec.Template.Annotations[restartedAt] = "2030-01-01T00:00:00Z"
+		Expect(k8sClient.Update(ctx, deployment)).To(Succeed())
+
+		reconcileOnce()
+
+		after := &appsv1.Deployment{}
+		fetch(after)
+		Expect(after.Spec.Template.Annotations).To(HaveKeyWithValue(restartedAt, "2030-01-01T00:00:00Z"))
+		Expect(after.Spec.Template.Annotations).To(HaveKey(pageHash))
+	})
+
 	It("brings back a Deployment that was deleted", func() {
 		key = types.NamespacedName{Name: "anchor", Namespace: namespace}
 		Expect(k8sClient.Create(ctx, newCourse(key.Name, "Holding fast", 1))).To(Succeed())
