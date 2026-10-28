@@ -16,7 +16,8 @@ updates:
         patterns: ["*"]
     open-pull-requests-limit: 2
 
-  # The operator's Go modules, controller-runtime and client-go above all.
+  # The operator's Go modules, in one monthly pull request: a module bumped on
+  # its own is a pull request per module, and that's noise nobody reads.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -24,6 +25,6 @@ updates:
     commit-message:
       prefix: deps
     groups:
-      kubernetes:
-        patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+      all:
+        patterns: ["*"]
     open-pull-requests-limit: 2
