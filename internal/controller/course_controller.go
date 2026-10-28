@@ -88,7 +88,11 @@ func (r *CourseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		deployment.Spec.Replicas = course.Spec.Replicas
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		deployment.Spec.Template.Labels = labels
-		deployment.Spec.Template.Annotations = map[string]string{pageHashAnnotation: hashOf(course.Spec.Message)}
+		// Set our one key and keep the rest: kubectl rollout restart writes its own here.
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = map[string]string{}
+		}
+		deployment.Spec.Template.Annotations[pageHashAnnotation] = hashOf(course.Spec.Message)
 		deployment.Spec.Template.Spec.Containers = []corev1.Container{{
 			Name:  "web",
 			Image: course.Spec.Image,
