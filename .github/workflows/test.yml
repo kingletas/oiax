@@ -6,11 +6,16 @@ on:
 
 permissions: {}
 
+# A newer push makes an older run's answer stale, so the older one stops.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  check:
     permissions:
       contents: read
-    name: Run on Ubuntu
+    name: make check
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -23,7 +28,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Running Tests
-        run: |
-          go mod tidy
-          make test
+      # The same gate a commit passes locally: generated code, the linter and
+      # the tests against envtest.
+      - name: Run the gate
+        run: make check
