@@ -106,6 +106,9 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: check
+check: lint-config lint test ## Everything a commit has to pass: the lint config, the linter and the tests
+
 ##@ Build
 
 .PHONY: build
