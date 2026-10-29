@@ -351,9 +351,6 @@ ARGOCD_CONTEXT = kind-$(ARGOCD_CLUSTER)
 ARGOCD_VERSION ?= v3.5.5
 ## The core install: the controllers without the UI, the API server or Dex
 ARGOCD_MANIFEST ?= https://raw.githubusercontent.com/argoproj/argo-cd/$(ARGOCD_VERSION)/manifests/core-install.yaml
-ARGOCD_IMAGE ?= quay.io/argoproj/argocd:$(ARGOCD_VERSION)
-## The Redis that core-install.yaml names; Argo CD's controller can do nothing without it
-ARGOCD_REDIS_IMAGE ?= public.ecr.aws/docker/library/redis:8.2.3-alpine
 ## The repository and revision Argo CD follows; point them at your fork or branch
 REPO_URL ?= https://github.com/kingletas/oiax.git
 REVISION ?= main
@@ -368,7 +365,7 @@ argocd-demo: ## Argo CD on a kind cluster, installing the operator and the sampl
 argocd-install:
 	$(MAKE) demo-cluster DEMO_CLUSTER=$(ARGOCD_CLUSTER)
 	@# Images already pulled here are loaded, so the cluster doesn't fetch them again.
-	@for image in $(ARGOCD_IMAGE) $(ARGOCD_REDIS_IMAGE); do \
+	@for image in $$($(MAKE) -s --no-print-directory argocd-images); do \
 		if $(CONTAINER_TOOL) image inspect $$image >/dev/null 2>&1; then \
 			$(KIND) load docker-image $$image --name $(ARGOCD_CLUSTER); \
 		fi; \
@@ -409,8 +406,8 @@ argocd-status: ## Print what Argo CD reports for each Application, and its contr
 	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd logs deployment/argocd-repo-server --tail=100
 
 .PHONY: argocd-images
-argocd-images: ## Print the images Argo CD's core install runs, one per line.
-	@printf '%s\n' $(ARGOCD_IMAGE) $(ARGOCD_REDIS_IMAGE)
+argocd-images: ## Print the images Argo CD's core install runs, one per line, read from its manifest.
+	@curl -fsSL --retry 5 $(ARGOCD_MANIFEST) | sed -n 's/^ *image: *//p' | sort -u
 
 .PHONY: argocd-clean
 argocd-clean: ## Delete the Argo CD demo's kind cluster.
