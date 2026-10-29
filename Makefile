@@ -417,7 +417,9 @@ argocd-pull: ## Pull Argo CD's images, with retries, so argocd-demo can load the
 	@# ECR Public refuses anonymous pulls past a data limit, which shared CI runners hit, so its
 	@# copies of Docker Hub's official images come from Docker Hub and are tagged with the name
 	@# the manifest uses.
-	@for image in $$($(MAKE) -s --no-print-directory argocd-images); do \
+	@images=$$($(MAKE) -s --no-print-directory argocd-images); \
+	if [ -z "$$images" ]; then echo "no images read from $(ARGOCD_MANIFEST)" >&2; exit 1; fi; \
+	for image in $$images; do \
 		source=$${image#$(ECR_LIBRARY)}; \
 		for attempt in 1 2 3 4 5; do \
 			$(CONTAINER_TOOL) pull $$source && break; \
