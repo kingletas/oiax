@@ -374,7 +374,9 @@ argocd-install:
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) apply --server-side --force-conflicts -n argocd -f $(ARGOCD_MANIFEST)
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-redis --timeout=5m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-repo-server --timeout=5m
-	@# A statefulset's rollout status returns before its pod is Ready, so wait on the pod itself.
+	@# A statefulset's rollout status returns once its pod exists, not once it is Ready, so it is
+	@# followed by a wait on the pod itself, which would fail at once if the pod didn't exist yet.
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status statefulset/argocd-application-controller --timeout=5m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd wait pod -l app.kubernetes.io/name=argocd-application-controller \
 		--for=condition=Ready --timeout=5m
 	sed -e 's|https://github.com/kingletas/oiax.git|$(REPO_URL)|' -e 's|targetRevision: .*|targetRevision: $(REVISION)|' \
