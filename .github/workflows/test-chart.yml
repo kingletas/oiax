@@ -64,6 +64,19 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      # The kind node pulls with no retry it can be told about, and a Redis
+      # pull that stalls leaves Argo CD unable to sync anything. Pulled here,
+      # with retries, make argocd-demo loads them into the node instead.
+      - name: Pull Argo CD's images
+        run: |
+          for image in $(make -s argocd-images); do
+            for attempt in 1 2 3 4 5; do
+              docker pull "$image" && break
+              [ "$attempt" = 5 ] && exit 1
+              sleep $((attempt * 10))
+            done
+          done
+
       # Argo CD fetches from git, not from this checkout, so it follows the
       # commit being tested: a pull request's own head, in its own repository.
       - name: Argo CD installs the chart and the sample Course from git

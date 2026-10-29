@@ -352,6 +352,8 @@ ARGOCD_VERSION ?= v3.5.5
 ## The core install: the controllers without the UI, the API server or Dex
 ARGOCD_MANIFEST ?= https://raw.githubusercontent.com/argoproj/argo-cd/$(ARGOCD_VERSION)/manifests/core-install.yaml
 ARGOCD_IMAGE ?= quay.io/argoproj/argocd:$(ARGOCD_VERSION)
+## The Redis that core-install.yaml names; Argo CD's controller can do nothing without it
+ARGOCD_REDIS_IMAGE ?= public.ecr.aws/docker/library/redis:8.2.3-alpine
 ## The repository and revision Argo CD follows; point them at your fork or branch
 REPO_URL ?= https://github.com/kingletas/oiax.git
 REVISION ?= main
@@ -365,13 +367,19 @@ argocd-demo: ## Argo CD on a kind cluster, installing the operator and the sampl
 .PHONY: argocd-install
 argocd-install:
 	$(MAKE) demo-cluster DEMO_CLUSTER=$(ARGOCD_CLUSTER)
-	@if $(CONTAINER_TOOL) image inspect $(ARGOCD_IMAGE) >/dev/null 2>&1; then \
-		$(KIND) load docker-image $(ARGOCD_IMAGE) --name $(ARGOCD_CLUSTER); \
-	fi
+	@# Images already pulled here are loaded, so the cluster doesn't fetch them again.
+	@for image in $(ARGOCD_IMAGE) $(ARGOCD_REDIS_IMAGE); do \
+		if $(CONTAINER_TOOL) image inspect $$image >/dev/null 2>&1; then \
+			$(KIND) load docker-image $$image --name $(ARGOCD_CLUSTER); \
+		fi; \
+	done
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) create namespace argocd --dry-run=client -o yaml | \
 		$(KUBECTL) --context $(ARGOCD_CONTEXT) apply -f -
 	@# Server-side, because Argo CD's own CRDs are too big for the annotation a client-side apply writes.
-	$(KUBECTL) --context $(ARGOCD_CONTEXT) apply --server-side --force-conflicts -n argocd -f $(ARGOCD_MANIFEST)
+	@# The manifest says imagePullPolicy Always, which would fetch the loaded images again; the tags
+	@# are pinned, so IfNotPresent runs the same image without asking the registry.
+	curl -fsSL --retry 5 $(ARGOCD_MANIFEST) | sed 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' | \
+		$(KUBECTL) --context $(ARGOCD_CONTEXT) apply --server-side --force-conflicts -n argocd -f -
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-redis --timeout=5m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-repo-server --timeout=5m
 	@# A statefulset's rollout status returns once its pod exists, not once it is Ready, so it is
@@ -394,9 +402,15 @@ argocd-install:
 .PHONY: argocd-status
 argocd-status: ## Print what Argo CD reports for each Application, and its controllers' recent logs.
 	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get pods -o wide
+	@# Events carry what a pod's status doesn't, such as why an image wouldn't pull.
+	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get events --field-selector type=Warning --sort-by=.lastTimestamp
 	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get applications -o yaml
 	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd logs statefulset/argocd-application-controller --tail=100
 	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd logs deployment/argocd-repo-server --tail=100
+
+.PHONY: argocd-images
+argocd-images: ## Print the images Argo CD's core install runs, one per line.
+	@printf '%s\n' $(ARGOCD_IMAGE) $(ARGOCD_REDIS_IMAGE)
 
 .PHONY: argocd-clean
 argocd-clean: ## Delete the Argo CD demo's kind cluster.
