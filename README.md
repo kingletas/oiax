@@ -12,6 +12,7 @@ kind: Course
 metadata:
   name: course-sample
 spec:
+  title: Tide tables
   message: Fair winds from the sample Course
   replicas: 2
 ```
@@ -138,11 +139,43 @@ If Argo CD hasn't synced within `SYNC_TIMEOUT` (5 minutes by default), `make arg
 
 `make argocd-clean` deletes the cluster.
 
-## Planned, not built yet
+## Upgrading
 
-It gets its own section here once it works:
+Version 0.2.0 adds an optional `title` to the Course. Upgrading an operator changes two things at once: the CRD, which decides what the API server accepts, and the operator, which acts on it. This is what happened when 0.2.0 replaced 0.1.0 on the `make argocd-demo` cluster, with the sample Course running the whole time. The times are from one run on a laptop.
 
-- an upgrade drill that adds a field to the Course without breaking the ones already running.
+**Before the upgrade, a new field just vanishes.** Patching a title onto a Course while the cluster still has the 0.1.0 CRD isn't refused:
+
+```bash
+kubectl --context kind-oiax-argocd patch course course-sample --type=merge -p '{"spec":{"title":"Tide tables"}}'
+```
+
+It prints `Warning: unknown field "spec.title"` and `patched (no change)`. The API server drops any field the CRD's schema doesn't have and keeps the rest, so the warning is the only sign. A manifest written for a newer version than the cluster has loses fields quietly.
+
+**The new field is additive.** `title` is marked optional and omitted when empty, so every Course stored before 0.2.0 is still valid, and nothing has to be converted.
+
+**The image goes first.** The chart's `appVersion` is the operator image's tag, so chart 0.2.0 asks for `oiax-controller:0.2.0`. On kind that means building and loading it, from a checkout of the new version, before Argo CD sees the new chart, or the new operator pod can't start:
+
+```bash
+make demo-cluster DEMO_CLUSTER=oiax-argocd
+```
+
+**Then git does the rest.** Once 0.2.0 is on the branch Argo CD follows, it syncs within three minutes, or at once with:
+
+```bash
+kubectl --context kind-oiax-argocd -n argocd annotate application oiax argocd.argoproj.io/refresh=normal --overwrite
+```
+
+The chart installs the CRD as a template, so the same sync updates it, and `title` is in the schema from then on.
+
+**Nothing that was running restarted.** The sample Course kept its ReplicaSet and its pods. The operator puts a hash of the page on the pod template, and a changed hash is what rolls the pods. 0.2.0 hashes a Course with no title exactly as 0.1.0 hashed its message, so every existing Course gets the hash it already has. Hashing the new page shape for everyone would have restarted every Course in the cluster for a page that hadn't changed.
+
+**Ready isn't leading.** The new operator pod was Ready 12 seconds after it started and took the leader lease 17 seconds after that. The old pod doesn't hand the lease over when it stops, so the new one waits for it to expire, and does nothing until then. Argo CD reports the upgrade healthy, as `helm upgrade --wait` would, once the pod is Ready, so for those 17 seconds nothing is reconciling Courses. The operator's log shows when it starts:
+
+```bash
+kubectl --context kind-oiax-argocd -n oiax-system logs deploy/oiax-controller-manager | grep -i lease
+```
+
+**Argo CD only defends what git says.** After the upgrade, the same `kubectl patch` sets the title, the page changes and the pods roll. Argo CD leaves it there: self-heal puts back fields git sets, so a hand-patched `replicas` is reverted within seconds, but the sample in git had no `title` yet, so a title set by hand wasn't drift. The sample in `config/samples/sail_v1alpha1_course.yaml` now has one, and that's what makes it Argo CD's to keep.
 
 ## Contributing
 
