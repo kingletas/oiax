@@ -64,6 +64,11 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      # Without Redis, Argo CD syncs nothing, and the kind node can't be told
+      # to retry a pull. Pulled here, make argocd-demo loads them instead.
+      - name: Pull Argo CD's images
+        run: make argocd-pull
+
       # Argo CD fetches from git, not from this checkout, so it follows the
       # commit being tested: a pull request's own head, in its own repository.
       - name: Argo CD installs the chart and the sample Course from git
