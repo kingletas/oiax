@@ -63,11 +63,28 @@ Then open <http://localhost:8080>. `make demo` is safe to run again, and `make d
 
 The chart installs the CRD as a template, so `helm upgrade` changes it too, and `helm uninstall` leaves it in place, because deleting a CRD deletes every Course with it.
 
+## Let Argo CD install it
+
+```bash
+make argocd-demo
+```
+
+This time nothing is installed by hand. It creates a second `kind` cluster, `oiax-argocd`, so it never fights the Helm release from `make demo`, loads the operator's image, and installs Argo CD's core (the controllers, without the web UI). Then it applies `deploy/argocd/applications.yaml`: a project that may read only this repository and write only to the two namespaces it needs, and two Applications in it. One installs the operator from `dist/chart`, the other the sample Course from `config/samples`. Both are read from git, not from your checkout, and both sync on their own and put back anything changed by hand: `kubectl patch` the sample's replicas and Argo CD sets them back within a couple of seconds. It ends when the Course is `Available` and both Applications are `Healthy`.
+
+Argo CD follows `main` in this repository. To follow your fork or a branch:
+
+```bash
+make argocd-demo REPO_URL=https://github.com/you/oiax.git REVISION=my-branch
+```
+
+A change has to be pushed before Argo CD can see it. The sample Course's first syncs may fail with no such kind, because the CRD arrives with the other Application; it retries on its own.
+
+`make argocd-clean` deletes the cluster.
+
 ## Planned, not built yet
 
 Each gets its own section here once it works:
 
-- Argo CD syncing that chart from this repository,
 - an upgrade drill that adds a field to the Course without breaking the ones already running,
 - a failure drill that kills the operator and deletes what it owns, and watches both come back.
 
