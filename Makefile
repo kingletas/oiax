@@ -355,9 +355,15 @@ ARGOCD_IMAGE ?= quay.io/argoproj/argocd:$(ARGOCD_VERSION)
 ## The repository and revision Argo CD follows; point them at your fork or branch
 REPO_URL ?= https://github.com/kingletas/oiax.git
 REVISION ?= main
+## How long to wait for Argo CD to sync the CRD from git
+SYNC_TIMEOUT ?= 5m
 
 .PHONY: argocd-demo
 argocd-demo: ## Argo CD on a kind cluster, installing the operator and the sample Course from git.
+	@$(MAKE) --no-print-directory argocd-install || { $(MAKE) --no-print-directory argocd-status; exit 1; }
+
+.PHONY: argocd-install
+argocd-install:
 	$(MAKE) demo-cluster DEMO_CLUSTER=$(ARGOCD_CLUSTER)
 	@if $(CONTAINER_TOOL) image inspect $(ARGOCD_IMAGE) >/dev/null 2>&1; then \
 		$(KIND) load docker-image $(ARGOCD_IMAGE) --name $(ARGOCD_CLUSTER); \
@@ -366,19 +372,29 @@ argocd-demo: ## Argo CD on a kind cluster, installing the operator and the sampl
 		$(KUBECTL) --context $(ARGOCD_CONTEXT) apply -f -
 	@# Server-side, because Argo CD's own CRDs are too big for the annotation a client-side apply writes.
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) apply --server-side --force-conflicts -n argocd -f $(ARGOCD_MANIFEST)
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-redis --timeout=5m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-repo-server --timeout=5m
-	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status statefulset/argocd-application-controller --timeout=5m
+	@# A statefulset's rollout status returns before its pod is Ready, so wait on the pod itself.
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd wait pod -l app.kubernetes.io/name=argocd-application-controller \
+		--for=condition=Ready --timeout=5m
 	sed -e 's|https://github.com/kingletas/oiax.git|$(REPO_URL)|' -e 's|targetRevision: .*|targetRevision: $(REVISION)|' \
 		deploy/argocd/applications.yaml | $(KUBECTL) --context $(ARGOCD_CONTEXT) apply -f -
 	@# kubectl can't wait for a Course until the cluster knows the kind, so the CRD comes first.
-	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait crd/courses.sail.oiax.example.com --for=create --timeout=5m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait crd/courses.sail.oiax.example.com --for=create --timeout=$(SYNC_TIMEOUT)
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait crd/courses.sail.oiax.example.com --for=condition=Established --timeout=1m
-	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait course/course-sample --for=create --timeout=5m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait course/course-sample --for=create --timeout=$(SYNC_TIMEOUT)
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait course/course-sample --for=condition=Available --timeout=3m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd wait application/oiax application/oiax-sample \
 		--for=jsonpath='{.status.health.status}'=Healthy --timeout=3m
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get applications
 	$(KUBECTL) --context $(ARGOCD_CONTEXT) get courses
+
+.PHONY: argocd-status
+argocd-status: ## Print what Argo CD reports for each Application, and its controllers' recent logs.
+	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get pods -o wide
+	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get applications -o yaml
+	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd logs statefulset/argocd-application-controller --tail=100
+	-$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd logs deployment/argocd-repo-server --tail=100
 
 .PHONY: argocd-clean
 argocd-clean: ## Delete the Argo CD demo's kind cluster.

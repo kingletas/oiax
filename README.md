@@ -134,6 +134,8 @@ make argocd-demo REPO_URL=https://github.com/you/oiax.git REVISION=my-branch
 
 A change has to be pushed before Argo CD can see it. The sample Course's first syncs may fail with no such kind, because the CRD arrives with the other Application; it retries on its own.
 
+If Argo CD hasn't synced within `SYNC_TIMEOUT` (5 minutes by default), `make argocd-demo` prints each Application's sync and health status, its conditions, and the last lines of Argo CD's controller and repo-server logs before it fails. `make argocd-status` prints the same at any time.
+
 `make argocd-clean` deletes the cluster.
 
 ## Planned, not built yet
