@@ -82,6 +82,12 @@ spec:
                 maximum: 10
                 minimum: 0
                 type: integer
+              title:
+                description: |-
+                  title is a heading the page shows above the message. A Course without
+                  one serves exactly what it served before titles existed.
+                maxLength: 200
+                type: string
             required:
             - message
             type: object

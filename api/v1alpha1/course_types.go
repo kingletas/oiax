@@ -29,7 +29,11 @@ type CourseSpec struct {
 	// +kubebuilder:validation:MaxLength=1024
 	// +required
 	Message string `json:"message"`
-
+	// title is a heading the page shows above the message. A Course without
+	// one serves exactly what it served before titles existed.
+	// +kubebuilder:validation:MaxLength=200
+	// +optional
+	Title string `json:"title,omitempty"`
 	// replicas is how many pods serve the page.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=10
