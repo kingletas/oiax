@@ -409,6 +409,24 @@ argocd-status: ## Print what Argo CD reports for each Application, and its contr
 argocd-images: ## Print the images Argo CD's core install runs, one per line, read from its manifest.
 	@curl -fsSL --retry 5 $(ARGOCD_MANIFEST) | sed -n 's/^ *image: *//p' | sort -u
 
+## Where ECR Public mirrors Docker Hub's official images
+ECR_LIBRARY = public.ecr.aws/docker/library/
+
+.PHONY: argocd-pull
+argocd-pull: ## Pull Argo CD's images, with retries, so argocd-demo can load them into kind.
+	@# ECR Public refuses anonymous pulls past a data limit, which shared CI runners hit, so its
+	@# copies of Docker Hub's official images come from Docker Hub and are tagged with the name
+	@# the manifest uses.
+	@for image in $$($(MAKE) -s --no-print-directory argocd-images); do \
+		source=$${image#$(ECR_LIBRARY)}; \
+		for attempt in 1 2 3 4 5; do \
+			$(CONTAINER_TOOL) pull $$source && break; \
+			if [ $$attempt = 5 ]; then exit 1; fi; \
+			sleep $$((attempt * 10)); \
+		done; \
+		if [ "$$source" != "$$image" ]; then $(CONTAINER_TOOL) tag $$source $$image; fi; \
+	done
+
 .PHONY: argocd-clean
 argocd-clean: ## Delete the Argo CD demo's kind cluster.
 	$(KIND) delete cluster --name $(ARGOCD_CLUSTER)
