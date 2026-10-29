@@ -17,6 +17,7 @@ spec:
 ```
 
 - **`message`** is the text the page shows. It's required, from 1 to 1024 characters.
+- **`title`** is an optional heading shown above the message, up to 200 characters. A Course without one serves exactly the page it did before titles existed.
 - **`replicas`** is how many pods serve it, from 0 to 10. It defaults to 1.
 - **`image`** is the web server. It defaults to `nginxinc/nginx-unprivileged:1.30-alpine`, and any image you swap in has to listen on 8080 and serve `/usr/share/nginx/html`.
 

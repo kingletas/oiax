@@ -71,7 +71,7 @@ func (r *CourseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	page := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: course.Name, Namespace: course.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, page, func() error {
-		page.Data = map[string]string{"index.html": course.Spec.Message + "\n"}
+		page.Data = map[string]string{"index.html": pageOf(course.Spec)}
 		return controllerutil.SetControllerReference(&course, page, r.Scheme)
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -92,7 +92,7 @@ func (r *CourseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = map[string]string{}
 		}
-		deployment.Spec.Template.Annotations[pageHashAnnotation] = hashOf(course.Spec.Message)
+		deployment.Spec.Template.Annotations[pageHashAnnotation] = pageHash(course.Spec)
 		deployment.Spec.Template.Spec.Containers = []corev1.Container{{
 			Name:  "web",
 			Image: course.Spec.Image,
@@ -148,6 +148,24 @@ func (r *CourseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	log.Info("reconciled", "ready", deployment.Status.ReadyReplicas, "wanted", wanted)
 	return ctrl.Result{}, nil
+}
+
+// pageOf is the page a Course serves: its title, when it has one, above its message.
+func pageOf(spec sailv1alpha1.CourseSpec) string {
+	if spec.Title == "" {
+		return spec.Message + "\n"
+	}
+	return spec.Title + "\n\n" + spec.Message + "\n"
+}
+
+// pageHash changes whenever the page does. A Course with no title hashes its
+// message alone, as version 0.1.0 did, so upgrading the operator doesn't roll
+// the pods of every Course that was already running.
+func pageHash(spec sailv1alpha1.CourseSpec) string {
+	if spec.Title == "" {
+		return hashOf(spec.Message)
+	}
+	return hashOf(spec.Title + "\n" + spec.Message)
 }
 
 // hashOf is a short, stable fingerprint of a message.
