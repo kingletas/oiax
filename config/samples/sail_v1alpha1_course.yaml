@@ -6,5 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: course-sample
 spec:
+  title: Tide tables
   message: Fair winds from the sample Course
   replicas: 2
