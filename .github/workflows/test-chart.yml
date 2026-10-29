@@ -1,0 +1,44 @@
+name: Demo
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+# A newer push makes an older run's answer stale, so the older one stops.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  demo:
+    permissions:
+      contents: read
+    name: make demo on kind
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      # kind and Helm at pinned versions, built from their modules, rather
+      # than whatever "latest" points at on the day.
+      - name: Install kind and Helm
+        run: |
+          go install sigs.k8s.io/kind@v0.32.0
+          go install helm.sh/helm/v4/cmd/helm@v4.3.0
+          kind version
+          helm version
+
+      - name: Lint the chart
+        run: helm lint dist/chart
+
+      - name: From a clone to a Ready Course
+        run: make demo

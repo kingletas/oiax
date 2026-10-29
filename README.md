@@ -43,11 +43,30 @@ That's the same gate every commit passes: generated code, the linter, and the te
 
 `make test-e2e` builds the operator's image and runs it on a throwaway `kind` cluster, which needs Docker and `kind` too.
 
+## Try it on kind
+
+You need Docker, `kind`, `kubectl` and Helm.
+
+```bash
+make demo
+```
+
+That creates a `kind` cluster called `oiax-demo`, builds the operator's image and loads it into the cluster, installs the operator from the Helm chart in `dist/chart`, applies the sample Course and waits for it to report `Available`. It ends with `kubectl get courses`. Every command names the cluster's own context, `kind-oiax-demo`, so it never touches whichever cluster your `kubectl` normally points at.
+
+To see the page:
+
+```bash
+kubectl --context kind-oiax-demo port-forward service/course-sample 8080:80
+```
+
+Then open <http://localhost:8080>. `make demo` is safe to run again, and `make demo-clean` deletes the cluster.
+
+The chart installs the CRD as a template, so `helm upgrade` changes it too, and `helm uninstall` leaves it in place, because deleting a CRD deletes every Course with it.
+
 ## Planned, not built yet
 
 Each gets its own section here once it works:
 
-- a Helm chart and a `make demo` that goes from a clone to a Course serving its page on `kind`,
 - Argo CD syncing that chart from this repository,
 - an upgrade drill that adds a field to the Course without breaking the ones already running,
 - a failure drill that kills the operator and deletes what it owns, and watches both come back.

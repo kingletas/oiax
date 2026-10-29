@@ -262,3 +262,78 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+##@ Helm Deployment
+
+## Helm binary to use for deploying the chart
+HELM ?= helm
+## Namespace to deploy the Helm release
+HELM_NAMESPACE ?= oiax-system
+## Name of the Helm release
+HELM_RELEASE ?= oiax
+## Path to the Helm chart directory
+HELM_CHART_DIR ?= dist/chart
+## Additional arguments to pass to helm commands
+HELM_EXTRA_ARGS ?=
+
+.PHONY: helm-installed
+helm-installed: ## Stop with a message when Helm is not installed.
+	@command -v $(HELM) >/dev/null 2>&1 || { \
+		echo "Helm is not installed. Install it from https://helm.sh/docs/intro/install/ and run this again."; \
+		exit 1; \
+	}
+
+.PHONY: helm-deploy
+helm-deploy: helm-installed ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
+	IMG="$(IMG)"; $(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_DIR) \
+		--namespace $(HELM_NAMESPACE) \
+		--create-namespace \
+		--set manager.image.repository=$${IMG%:*} \
+		--set manager.image.tag=$${IMG##*:} \
+		--wait \
+		--timeout 5m \
+		$(HELM_EXTRA_ARGS)
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm release from the K8s cluster.
+	$(HELM) uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-status
+helm-status: ## Show Helm release status.
+	$(HELM) status $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-history
+helm-history: ## Show Helm release history.
+	$(HELM) history $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-rollback
+helm-rollback: ## Rollback to previous Helm release.
+	$(HELM) rollback $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+##@ Demo
+
+## The kind cluster the demo runs on, and the context kind names after it
+DEMO_CLUSTER ?= oiax-demo
+DEMO_CONTEXT = kind-$(DEMO_CLUSTER)
+## The operator image the demo builds and loads into the cluster
+DEMO_IMG ?= oiax-controller:dev
+## The web server a Course runs when its spec names no image
+COURSE_IMAGE ?= nginxinc/nginx-unprivileged:1.30-alpine
+
+.PHONY: demo
+demo: helm-installed ## From a clone to a Ready Course on a local kind cluster.
+	@$(KIND) get clusters 2>/dev/null | grep -qx '$(DEMO_CLUSTER)' || $(KIND) create cluster --name $(DEMO_CLUSTER)
+	$(MAKE) docker-build IMG=$(DEMO_IMG)
+	$(KIND) load docker-image $(DEMO_IMG) --name $(DEMO_CLUSTER)
+	@# A Course image already on this machine is loaded too, so the cluster doesn't fetch it again.
+	@if $(CONTAINER_TOOL) image inspect $(COURSE_IMAGE) >/dev/null 2>&1; then \
+		$(KIND) load docker-image $(COURSE_IMAGE) --name $(DEMO_CLUSTER); \
+	fi
+	$(MAKE) helm-deploy IMG=$(DEMO_IMG) HELM_EXTRA_ARGS="--kube-context $(DEMO_CONTEXT)"
+	$(KUBECTL) --context $(DEMO_CONTEXT) apply -k config/samples/
+	$(KUBECTL) --context $(DEMO_CONTEXT) wait course/course-sample --for=condition=Available --timeout=2m
+	$(KUBECTL) --context $(DEMO_CONTEXT) get courses
+
+.PHONY: demo-clean
+demo-clean: ## Delete the demo's kind cluster.
+	$(KIND) delete cluster --name $(DEMO_CLUSTER)
