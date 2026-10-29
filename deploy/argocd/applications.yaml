@@ -1,0 +1,87 @@
+# A project and two Argo CD Applications that install oiax from git: the
+# operator from its Helm chart, and the sample Course. `make argocd-demo`
+# applies this file with the repository URL and targetRevision swapped for
+# REPO_URL and REVISION; on its own it follows main in this repository.
+#
+# The project lets the two Applications read this one repository and write to
+# two namespaces, plus the few cluster-wide kinds the chart installs.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: oiax
+  namespace: argocd
+spec:
+  description: The oiax operator and its sample Course, from one repository
+  sourceRepos:
+    - https://github.com/kingletas/oiax.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: oiax-system
+    - server: https://kubernetes.default.svc
+      namespace: default
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: oiax
+  namespace: argocd
+spec:
+  project: oiax
+  source:
+    repoURL: https://github.com/kingletas/oiax.git
+    targetRevision: main
+    path: dist/chart
+    helm:
+      # The image make demo-cluster builds and loads into kind; nothing pulls
+      # it. Its tag is the chart's appVersion, so a new chart version asks for
+      # a new image.
+      valuesObject:
+        manager:
+          image:
+            repository: oiax-controller
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: oiax-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: oiax-sample
+  namespace: argocd
+spec:
+  project: oiax
+  source:
+    repoURL: https://github.com/kingletas/oiax.git
+    targetRevision: main
+    path: config/samples
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # The Course's CRD comes with the other Application, so the first tries
+    # can find no such kind; they wait and try again.
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m

@@ -42,3 +42,32 @@ jobs:
 
       - name: From a clone to a Ready Course
         run: make demo
+
+  argocd:
+    permissions:
+      contents: read
+    name: make argocd-demo on kind
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install kind
+        run: |
+          go install sigs.k8s.io/kind@v0.32.0
+          kind version
+
+      # Argo CD fetches from git, not from this checkout, so it follows the
+      # commit being tested: a pull request's own head, in its own repository.
+      - name: Argo CD installs the chart and the sample Course from git
+        env:
+          REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: make argocd-demo REPO_URL="$REPO_URL" REVISION="$REVISION"

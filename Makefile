@@ -315,13 +315,15 @@ helm-rollback: ## Rollback to previous Helm release.
 ## The kind cluster the demo runs on, and the context kind names after it
 DEMO_CLUSTER ?= oiax-demo
 DEMO_CONTEXT = kind-$(DEMO_CLUSTER)
+## The chart's appVersion, which is also the operator image's tag
+APP_VERSION := $(shell sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\} *$$/\1/p' dist/chart/Chart.yaml)
 ## The operator image the demo builds and loads into the cluster
-DEMO_IMG ?= oiax-controller:dev
+DEMO_IMG ?= oiax-controller:$(APP_VERSION)
 ## The web server a Course runs when its spec names no image
 COURSE_IMAGE ?= nginxinc/nginx-unprivileged:1.30-alpine
 
-.PHONY: demo
-demo: helm-installed ## From a clone to a Ready Course on a local kind cluster.
+.PHONY: demo-cluster
+demo-cluster: ## A kind cluster named DEMO_CLUSTER with the operator's image loaded, and nothing installed.
 	@$(KIND) get clusters 2>/dev/null | grep -qx '$(DEMO_CLUSTER)' || $(KIND) create cluster --name $(DEMO_CLUSTER)
 	$(MAKE) docker-build IMG=$(DEMO_IMG)
 	$(KIND) load docker-image $(DEMO_IMG) --name $(DEMO_CLUSTER)
@@ -329,6 +331,9 @@ demo: helm-installed ## From a clone to a Ready Course on a local kind cluster.
 	@if $(CONTAINER_TOOL) image inspect $(COURSE_IMAGE) >/dev/null 2>&1; then \
 		$(KIND) load docker-image $(COURSE_IMAGE) --name $(DEMO_CLUSTER); \
 	fi
+
+.PHONY: demo
+demo: helm-installed demo-cluster ## From a clone to a Ready Course on a local kind cluster.
 	$(MAKE) helm-deploy IMG=$(DEMO_IMG) HELM_EXTRA_ARGS="--kube-context $(DEMO_CONTEXT)"
 	$(KUBECTL) --context $(DEMO_CONTEXT) apply -k config/samples/
 	$(KUBECTL) --context $(DEMO_CONTEXT) wait course/course-sample --for=condition=Available --timeout=2m
@@ -337,3 +342,44 @@ demo: helm-installed ## From a clone to a Ready Course on a local kind cluster.
 .PHONY: demo-clean
 demo-clean: ## Delete the demo's kind cluster.
 	$(KIND) delete cluster --name $(DEMO_CLUSTER)
+
+##@ Argo CD
+
+## Argo CD gets a cluster of its own, so it never fights a Helm release from make demo
+ARGOCD_CLUSTER ?= oiax-argocd
+ARGOCD_CONTEXT = kind-$(ARGOCD_CLUSTER)
+ARGOCD_VERSION ?= v3.5.5
+## The core install: the controllers without the UI, the API server or Dex
+ARGOCD_MANIFEST ?= https://raw.githubusercontent.com/argoproj/argo-cd/$(ARGOCD_VERSION)/manifests/core-install.yaml
+ARGOCD_IMAGE ?= quay.io/argoproj/argocd:$(ARGOCD_VERSION)
+## The repository and revision Argo CD follows; point them at your fork or branch
+REPO_URL ?= https://github.com/kingletas/oiax.git
+REVISION ?= main
+
+.PHONY: argocd-demo
+argocd-demo: ## Argo CD on a kind cluster, installing the operator and the sample Course from git.
+	$(MAKE) demo-cluster DEMO_CLUSTER=$(ARGOCD_CLUSTER)
+	@if $(CONTAINER_TOOL) image inspect $(ARGOCD_IMAGE) >/dev/null 2>&1; then \
+		$(KIND) load docker-image $(ARGOCD_IMAGE) --name $(ARGOCD_CLUSTER); \
+	fi
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) create namespace argocd --dry-run=client -o yaml | \
+		$(KUBECTL) --context $(ARGOCD_CONTEXT) apply -f -
+	@# Server-side, because Argo CD's own CRDs are too big for the annotation a client-side apply writes.
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) apply --server-side --force-conflicts -n argocd -f $(ARGOCD_MANIFEST)
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status deployment/argocd-repo-server --timeout=5m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd rollout status statefulset/argocd-application-controller --timeout=5m
+	sed -e 's|https://github.com/kingletas/oiax.git|$(REPO_URL)|' -e 's|targetRevision: .*|targetRevision: $(REVISION)|' \
+		deploy/argocd/applications.yaml | $(KUBECTL) --context $(ARGOCD_CONTEXT) apply -f -
+	@# kubectl can't wait for a Course until the cluster knows the kind, so the CRD comes first.
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait crd/courses.sail.oiax.example.com --for=create --timeout=5m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait crd/courses.sail.oiax.example.com --for=condition=Established --timeout=1m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait course/course-sample --for=create --timeout=5m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) wait course/course-sample --for=condition=Available --timeout=3m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd wait application/oiax application/oiax-sample \
+		--for=jsonpath='{.status.health.status}'=Healthy --timeout=3m
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) -n argocd get applications
+	$(KUBECTL) --context $(ARGOCD_CONTEXT) get courses
+
+.PHONY: argocd-clean
+argocd-clean: ## Delete the Argo CD demo's kind cluster.
+	$(KIND) delete cluster --name $(ARGOCD_CLUSTER)
