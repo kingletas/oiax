@@ -63,6 +63,60 @@ Then open <http://localhost:8080>. `make demo` is safe to run again, and `make d
 
 The chart installs the CRD as a template, so `helm upgrade` changes it too, and `helm uninstall` leaves it in place, because deleting a CRD deletes every Course with it.
 
+## When things break
+
+The operator remembers nothing between runs. Each time, it reads the Course and makes the cluster match it, so it doesn't matter what broke or how long the operator was gone. Three ways to see that on the `make demo` cluster. First leave a watch running in a second terminal, where every status change shows up as a new line:
+
+```bash
+kubectl --context kind-oiax-demo get courses -w --output-watch-events
+```
+
+Watch that rather than `kubectl wait`. Right after a break, `kubectl wait --for=condition=Available` can still read the old `True` and return before the operator has noticed anything. The times below are from one run on a laptop; yours will differ a little.
+
+**Kill the operator.**
+
+```bash
+kubectl --context kind-oiax-demo -n oiax-system delete pod -l control-plane=controller-manager
+```
+
+A new pod is ready about 11 seconds later and takes the leader lease 5 to 7 seconds after that; `kubectl --context kind-oiax-demo -n oiax-system get lease` names the holder. Only one copy of the operator may act at a time, so a new pod does nothing until it holds the lease. The watch stays quiet, because nothing is wrong with the Course.
+
+**Delete what it owns.**
+
+```bash
+kubectl --context kind-oiax-demo delete deployment course-sample
+```
+
+The Deployment is back a fraction of a second later, and in the watch the Course goes `False`, then `True` again within about a second as the pods come up. The Course owns the Deployment, so deleting it wakes the operator, which finds a Course with no Deployment and makes one.
+
+**Stop the operator, then break things.**
+
+```bash
+kubectl --context kind-oiax-demo -n oiax-system scale deploy/oiax-controller-manager --replicas=0
+kubectl --context kind-oiax-demo delete deployment course-sample
+kubectl --context kind-oiax-demo patch course course-sample --type=merge -p '{"spec":{"message":"Changed while nobody was steering"}}'
+```
+
+Nothing brings the Deployment back, and the watch still says `2   2   True`. That's the part to remember: status is the operator's last report, not a live reading, and with the operator gone nobody updates it. The Course does carry a clue. Its `metadata.generation` went up with the patch and its `status.observedGeneration` didn't, so the status describes an older spec than the one you're reading:
+
+```bash
+kubectl --context kind-oiax-demo get course course-sample -o jsonpath='{.metadata.generation} {.status.observedGeneration}{"\n"}'
+```
+
+On a fresh `make demo` that prints `2 1`. Start the operator again:
+
+```bash
+kubectl --context kind-oiax-demo -n oiax-system scale deploy/oiax-controller-manager --replicas=1
+```
+
+About 17 seconds later, once it holds the lease, the Deployment is back, the Course goes `False` and then `True`, and the page has the new message:
+
+```bash
+kubectl --context kind-oiax-demo get configmap course-sample -o jsonpath='{.data}'
+```
+
+The operator never saw the message change, and it didn't need to. It reads the Course as it is now.
+
 ## Let Argo CD install it
 
 ```bash
@@ -83,10 +137,9 @@ A change has to be pushed before Argo CD can see it. The sample Course's first s
 
 ## Planned, not built yet
 
-Each gets its own section here once it works:
+It gets its own section here once it works:
 
-- an upgrade drill that adds a field to the Course without breaking the ones already running,
-- a failure drill that kills the operator and deletes what it owns, and watches both come back.
+- an upgrade drill that adds a field to the Course without breaking the ones already running.
 
 ## Contributing
 
