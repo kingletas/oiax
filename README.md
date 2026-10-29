@@ -12,6 +12,7 @@ kind: Course
 metadata:
   name: course-sample
 spec:
+  title: Tide tables
   message: Fair winds from the sample Course
   replicas: 2
 ```
@@ -174,7 +175,7 @@ The chart installs the CRD as a template, so the same sync updates it, and `titl
 kubectl --context kind-oiax-argocd -n oiax-system logs deploy/oiax-controller-manager | grep -i lease
 ```
 
-**Argo CD only defends what git says.** After the upgrade, the same `kubectl patch` sets the title, the page changes and the pods roll. Argo CD leaves it there: self-heal puts back fields git sets, so a hand-patched `replicas` is reverted within seconds, but git said nothing about `title`, so a title set by hand isn't drift. Adding `title` to `config/samples/sail_v1alpha1_course.yaml` in git is what makes it Argo CD's to keep.
+**Argo CD only defends what git says.** After the upgrade, the same `kubectl patch` sets the title, the page changes and the pods roll. Argo CD leaves it there: self-heal puts back fields git sets, so a hand-patched `replicas` is reverted within seconds, but the sample in git had no `title` yet, so a title set by hand wasn't drift. The sample in `config/samples/sail_v1alpha1_course.yaml` now has one, and that's what makes it Argo CD's to keep.
 
 ## Contributing
 
