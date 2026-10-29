@@ -130,6 +130,45 @@ var _ = Describe("Course Controller", func() {
 		Expect(after.Spec.Template.Annotations[pageHash]).NotTo(Equal(hashBefore))
 	})
 
+	It("keeps the page and hash 0.1.0 gave a Course with no title, so an upgrade rolls nothing", func() {
+		key = types.NamespacedName{Name: "ebb", Namespace: namespace}
+		Expect(k8sClient.Create(ctx, newCourse(key.Name, "Ebb tide", 1))).To(Succeed())
+		reconcileOnce()
+
+		page := &corev1.ConfigMap{}
+		fetch(page)
+		Expect(page.Data).To(HaveKeyWithValue("index.html", "Ebb tide\n"))
+
+		// The first 8 bytes of sha256("Ebb tide"), which is what 0.1.0 wrote.
+		deployment := &appsv1.Deployment{}
+		fetch(deployment)
+		Expect(deployment.Spec.Template.Annotations).To(HaveKeyWithValue(pageHash, "c46ec9ad2f549fb5"))
+	})
+
+	It("shows a title above the message, and rolls the pods when it is added", func() {
+		key = types.NamespacedName{Name: "flood", Namespace: namespace}
+		Expect(k8sClient.Create(ctx, newCourse(key.Name, "Flood tide", 1))).To(Succeed())
+		reconcileOnce()
+
+		before := &appsv1.Deployment{}
+		fetch(before)
+		hashBefore := before.Spec.Template.Annotations[pageHash]
+
+		course := &sailv1alpha1.Course{}
+		fetch(course)
+		course.Spec.Title = "Tide tables"
+		Expect(k8sClient.Update(ctx, course)).To(Succeed())
+		reconcileOnce()
+
+		page := &corev1.ConfigMap{}
+		fetch(page)
+		Expect(page.Data).To(HaveKeyWithValue("index.html", "Tide tables\n\nFlood tide\n"))
+
+		after := &appsv1.Deployment{}
+		fetch(after)
+		Expect(after.Spec.Template.Annotations[pageHash]).NotTo(Equal(hashBefore))
+	})
+
 	It("keeps a pod template annotation it did not write, such as a rollout restart's", func() {
 		key = types.NamespacedName{Name: "slipway", Namespace: namespace}
 		Expect(k8sClient.Create(ctx, newCourse(key.Name, "Tied up", 1))).To(Succeed())
