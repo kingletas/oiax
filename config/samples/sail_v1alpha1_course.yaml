@@ -6,4 +6,5 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: course-sample
 spec:
-  # TODO(user): Add fields here
+  message: Fair winds from the sample Course
+  replicas: 2
